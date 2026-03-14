@@ -1,0 +1,24 @@
+{
+  "name": "enderphan94",
+  "owner": {
+    "name": "Ender Phan"
+  },
+  "metadata": {
+    "description": "Ender Phan's Claude Code plugins"
+  },
+  "plugins": [
+    {
+      "name": "webscan",
+      "source": ".",
+      "description": "Client-side web security scanner — detects secrets, vulnerable JS libraries, misconfigurations, XSS sinks, CORS issues, and more",
+      "version": "1.0.0",
+      "author": {
+        "name": "Ender Phan"
+      },
+      "homepage": "https://github.com/enderphan94/web_scan",
+      "repository": "https://github.com/enderphan94/web_scan",
+      "license": "MIT",
+      "keywords": ["security", "scanner", "xss", "pentest", "javascript", "frontend", "cors", "secrets"]
+    }
+  ]
+}
