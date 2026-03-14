@@ -1,0 +1,115 @@
+{
+  "tools": [
+    {
+      "name": "setup",
+      "description": "Detect OS, check available tools, and install required Python packages. Always run first. Returns OS info and tool availability status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "bash": "#!/usr/bin/env bash\nOS=$(uname -s)\nPKG_MGR=\"\"\n\nif [ \"$OS\" = \"Darwin\" ]; then\n  PKG_MGR=\"brew\"\n  echo \"[os] macOS\"\nelif [ \"$OS\" = \"Linux\" ]; then\n  if [ -f /etc/debian_version ]; then\n    PKG_MGR=\"apt\"\n    echo \"[os] Ubuntu/Debian $(cat /etc/debian_version 2>/dev/null)\"\n  elif [ -f /etc/redhat-release ]; then\n    PKG_MGR=\"yum\"\n    echo \"[os] $(cat /etc/redhat-release)\"\n  elif [ -f /etc/arch-release ]; then\n    PKG_MGR=\"pacman\"\n    echo \"[os] Arch Linux\"\n  else\n    echo \"[os] Linux ($(uname -r))\"\n  fi\nelse\n  echo \"[os] $OS\"\nfi\n\npython3 -m pip install --quiet --user requests beautifulsoup4 dnspython 2>&1 | grep -v 'already satisfied' | grep -v '^$' || true\necho \"[ok] python deps: requests beautifulsoup4 dnspython\"\n\nif command -v curl &>/dev/null; then\n  echo \"[ok] curl $(curl --version | head -1 | awk '{print $2}')\"\nelse\n  echo \"[warn] curl not found\"\n  case \"$PKG_MGR\" in\n    brew)    echo \"      fix: brew install curl\" ;;\n    apt)     echo \"      fix: sudo apt-get install -y curl\" ;;\n    yum)     echo \"      fix: sudo yum install -y curl\" ;;\n    pacman)  echo \"      fix: sudo pacman -S curl\" ;;\n  esac\nfi\n\nif command -v npx &>/dev/null; then\n  echo \"[ok] npx $(npx --version 2>/dev/null) — retire.js available\"\nelse\n  echo \"[skip] npx not found — Step 4b (retire.js) will be skipped\"\n  case \"$PKG_MGR\" in\n    brew)    echo \"       fix: brew install node\" ;;\n    apt)     echo \"       fix: sudo apt-get install -y nodejs npm\" ;;\n    yum)     echo \"       fix: sudo yum install -y nodejs npm\" ;;\n    pacman)  echo \"       fix: sudo pacman -S nodejs npm\" ;;\n  esac\nfi\n\nif command -v python3 &>/dev/null; then\n  echo \"[ok] python3 $(python3 --version 2>&1 | awk '{print $2}')\"\nelse\n  echo \"[error] python3 not found\"\n  case \"$PKG_MGR\" in\n    brew)    echo \"        fix: brew install python3\" ;;\n    apt)     echo \"        fix: sudo apt-get install -y python3 python3-pip\" ;;\n    yum)     echo \"        fix: sudo yum install -y python3\" ;;\n    pacman)  echo \"        fix: sudo pacman -S python\" ;;\n  esac\nfi"
+    },
+    {
+      "name": "fetch_headers",
+      "description": "Fetch HTTP response headers from a URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }
+        },
+        "required": ["url"]
+      },
+      "bash": "curl -sIL --max-time 10 --user-agent 'Mozilla/5.0' '{{url}}'"
+    },
+    {
+      "name": "fetch_page",
+      "description": "Fetch the full HTML body of a URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }
+        },
+        "required": ["url"]
+      },
+      "bash": "curl -sL --max-time 15 --user-agent 'Mozilla/5.0' '{{url}}'"
+    },
+    {
+      "name": "probe_paths",
+      "description": "Probe common sensitive paths on the target and return HTTP status codes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "Base URL without trailing slash, e.g. https://www.acb.com"
+          }
+        },
+        "required": ["base_url"]
+      },
+      "bash": "for path in /.env /.env.local /.env.production /.git/config /.git/HEAD /robots.txt /sitemap.xml /.well-known/security.txt /swagger.json /swagger-ui.html /openapi.json /graphql /graphiql /api/v1 /api/v2 /admin /admin/login /wp-admin /phpinfo.php /server-status /health /metrics /version /actuator /actuator/env /actuator/health; do status=$(curl -so /dev/null -w '%{http_code}' --max-time 5 --user-agent 'Mozilla/5.0' \"{{base_url}}$path\"); echo \"$status {{base_url}}$path\"; done"
+    },
+    {
+      "name": "fetch_js",
+      "description": "Download a JavaScript file and return its content.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }
+        },
+        "required": ["url"]
+      },
+      "bash": "curl -sL --max-time 15 --user-agent 'Mozilla/5.0' '{{url}}'"
+    },
+    {
+      "name": "retire_scan",
+      "description": "Download all JS files from a page into a temp directory and run retire.js to detect vulnerable JavaScript libraries. Requires npx (Node.js). Returns retire.js JSON output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "Full target URL, e.g. https://www.acb.com"
+          },
+          "origin": {
+            "type": "string",
+            "description": "Scheme + hostname only, e.g. https://www.acb.com"
+          }
+        },
+        "required": ["base_url", "origin"]
+      },
+      "bash": "#!/usr/bin/env bash\nif ! command -v npx &>/dev/null; then\n  echo '{\"error\": \"npx not available\", \"message\": \"Install Node.js to enable retire.js scanning\"}'\n  exit 0\nfi\n\nTMPDIR=$(mktemp -d)\ntrap 'rm -rf \"$TMPDIR\"' EXIT\n\nHTML=$(curl -sL --max-time 15 --user-agent 'Mozilla/5.0' '{{base_url}}')\n\ncount=0\nwhile IFS= read -r src; do\n  [ -z \"$src\" ] && continue\n  if [[ \"$src\" == http* ]]; then\n    url=\"$src\"\n  elif [[ \"$src\" == //* ]]; then\n    url=\"https:$src\"\n  elif [[ \"$src\" == /* ]]; then\n    url=\"{{origin}}$src\"\n  else\n    url=\"{{origin}}/$src\"\n  fi\n  curl -sL --max-time 10 --user-agent 'Mozilla/5.0' \"$url\" -o \"$TMPDIR/${count}.js\" 2>/dev/null\n  count=$((count + 1))\n  [ $count -ge 20 ] && break\ndone < <(echo \"$HTML\" | grep -oE 'src=\"[^\"]*\\.js[^\"]*\"' | sed 's/src=\"//;s/\"$//')\n\nif [ $count -eq 0 ]; then\n  echo '{\"findings\": [], \"message\": \"no JS files downloaded\"}'\n  exit 0\nfi\n\nnpx --yes retire --js --outputformat json --path \"$TMPDIR\" 2>/dev/null || echo '{\"error\": \"retire scan failed\"}'"
+    },
+    {
+      "name": "dns_subdomains",
+      "description": "Query crt.sh certificate transparency logs for subdomains of a domain.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Bare domain, e.g. acb.com"
+          }
+        },
+        "required": ["domain"]
+      },
+      "bash": "curl -s --max-time 15 'https://crt.sh/?q=%25.{{domain}}&output=json' | python3 -c \"import sys,json; data=json.load(sys.stdin); names=sorted(set(n.strip().lstrip('*.') for e in data for n in e.get('name_value','').splitlines())); print('\\n'.join(names))\" 2>/dev/null || echo 'crt.sh unavailable'"
+    },
+    {
+      "name": "cors_probe",
+      "description": "Test CORS behaviour by sending a request with an attacker-controlled Origin header.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "origin": {
+            "type": "string",
+            "description": "Attacker origin to inject, e.g. https://evil.com"
+          }
+        },
+        "required": ["url", "origin"]
+      },
+      "bash": "curl -sI --max-time 10 --user-agent 'Mozilla/5.0' -H 'Origin: {{origin}}' '{{url}}' | grep -i 'access-control'"
+    }
+  ]
+}

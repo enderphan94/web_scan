@@ -1,0 +1,12 @@
+{
+  "name": "webscan",
+  "version": "1.0.0",
+  "description": "Client-side web security scanner — detects secrets, vulnerable JS libraries, misconfigurations, XSS sinks, CORS issues, and more",
+  "author": {
+    "name": "Ender Phan"
+  },
+  "homepage": "https://github.com/enderphan94/web_scan",
+  "repository": "https://github.com/enderphan94/web_scan",
+  "license": "MIT",
+  "keywords": ["security", "scanner", "xss", "pentest", "javascript", "frontend", "cors", "secrets"]
+}
